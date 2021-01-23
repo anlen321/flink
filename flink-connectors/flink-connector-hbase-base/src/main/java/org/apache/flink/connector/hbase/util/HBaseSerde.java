@@ -68,9 +68,6 @@ public class HBaseSerde {
 
     private final int fieldLength;
 
-    private GenericRowData reusedRow;
-    private GenericRowData[] reusedFamilyRows;
-
     private final @Nullable FieldEncoder keyEncoder;
     private final @Nullable FieldDecoder keyDecoder;
     private final FieldEncoder[][] qualifierEncoders;
@@ -95,10 +92,6 @@ public class HBaseSerde {
         }
         this.nullStringBytes = nullStringLiteral.getBytes(StandardCharsets.UTF_8);
 
-        // prepare output rows
-        this.reusedRow = new GenericRowData(fieldLength);
-        this.reusedFamilyRows = new GenericRowData[families.length];
-
         this.qualifiers = new byte[families.length][][];
         this.qualifierEncoders = new FieldEncoder[families.length][];
         this.qualifierDecoders = new FieldDecoder[families.length][];
@@ -116,7 +109,6 @@ public class HBaseSerde {
                             .map(DataType::getLogicalType)
                             .map(t -> createNullableFieldDecoder(t, nullStringBytes))
                             .toArray(FieldDecoder[]::new);
-            this.reusedFamilyRows[f] = new GenericRowData(dataTypes.length);
         }
         this.rowWithRowKey = new GenericRowData(1);
     }
@@ -225,6 +217,13 @@ public class HBaseSerde {
 
     /** Converts HBase {@link Result} into {@link RowData}. */
     public RowData convertToRow(Result result) {
+        // The output rows needs to be initialized each time
+        // to prevent the possibility of putting the output object into the cache.
+        GenericRowData reusedRow = new GenericRowData(fieldLength);
+        GenericRowData[] reusedFamilyRows = new GenericRowData[families.length];
+        for (int f = 0; f < families.length; f++) {
+            reusedFamilyRows[f] = new GenericRowData(qualifiers[f].length);
+        }
         for (int i = 0; i < fieldLength; i++) {
             if (rowkeyIndex == i) {
                 assert keyDecoder != null;
