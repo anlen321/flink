@@ -1481,7 +1481,7 @@ Certain RocksDB native metrics are available but disabled by default, you can fi
       <th rowspan="1">Operator</th>
       <td>lookupCacheHitRate</td>
       <td>n/a</td>
-      <td>Cache hit ratio for async lookup.</td>
+      <td>Cache hit ratio for lookup.</td>
       <td>Gauge</td>
     </tr>
   </tbody>

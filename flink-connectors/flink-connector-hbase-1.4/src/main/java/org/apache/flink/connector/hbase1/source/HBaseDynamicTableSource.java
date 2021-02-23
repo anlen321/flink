@@ -19,6 +19,7 @@
 package org.apache.flink.connector.hbase1.source;
 
 import org.apache.flink.annotation.Internal;
+import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.io.InputFormat;
 import org.apache.flink.connector.hbase.options.HBaseLookupOptions;
 import org.apache.flink.connector.hbase.source.AbstractHBaseDynamicTableSource;
@@ -58,5 +59,10 @@ public class HBaseDynamicTableSource extends AbstractHBaseDynamicTableSource {
                 "Currently, hbase-1.4 connector doesn't support async lookup.");
         }
         return super.getLookupRuntimeProvider(context);
+    }
+
+    @VisibleForTesting
+    public HBaseLookupOptions getLookupOptions(){
+        return this.lookupOptions;
     }
 }

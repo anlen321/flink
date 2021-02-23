@@ -159,7 +159,7 @@ public class HBaseRowDataAsyncLookupFunction extends AsyncTableFunction<RowData>
                         resultFuture.completeExceptionally(
                             new RuntimeException("HBase table '" + hTableName + "' not found.", throwable));
                     } else {
-                        LOG.error(String.format("Hbase asyncLookup error, retry times = %d", currentRetry), throwable);
+                        LOG.error(String.format("HBase asyncLookup error, retry times = %d", currentRetry), throwable);
                         if (currentRetry >= maxRetryTimes) {
                             resultFuture.completeExceptionally(throwable);
                         } else {

@@ -1481,7 +1481,7 @@ Certain RocksDB native metrics are available but disabled by default, you can fi
       <th rowspan="1">Operator</th>
       <td>lookupCacheHitRate</td>
       <td>n/a</td>
-      <td>异步查找的缓存命中率。</td>
+      <td>查找的缓存命中率。</td>
       <td>Gauge</td>
     </tr>
   </tbody>

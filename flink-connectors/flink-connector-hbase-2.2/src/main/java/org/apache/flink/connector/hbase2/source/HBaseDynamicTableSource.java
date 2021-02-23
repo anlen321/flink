@@ -65,7 +65,8 @@ public class HBaseDynamicTableSource extends AbstractHBaseDynamicTableSource {
             return AsyncTableFunctionProvider.of(new HBaseRowDataAsyncLookupFunction(conf, tableName, hbaseSchema,
                 nullStringLiteral, lookupOptions));
         }
-        return TableFunctionProvider.of(new HBaseRowDataLookupFunction(conf, tableName, hbaseSchema, nullStringLiteral));
+        return TableFunctionProvider.of(new HBaseRowDataLookupFunction(conf, tableName, hbaseSchema, nullStringLiteral,
+            lookupOptions));
     }
 
     @Override
