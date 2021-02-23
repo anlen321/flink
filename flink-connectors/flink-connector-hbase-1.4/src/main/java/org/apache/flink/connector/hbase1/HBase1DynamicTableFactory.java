@@ -37,6 +37,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
+import static org.apache.flink.connector.hbase.options.HBaseOptions.LOOKUP_ASYNC;
 import static org.apache.flink.connector.hbase.options.HBaseOptions.NULL_STRING_LITERAL;
 import static org.apache.flink.connector.hbase.options.HBaseOptions.PROPERTIES_PREFIX;
 import static org.apache.flink.connector.hbase.options.HBaseOptions.SINK_BUFFER_FLUSH_INTERVAL;
@@ -46,6 +47,7 @@ import static org.apache.flink.connector.hbase.options.HBaseOptions.TABLE_NAME;
 import static org.apache.flink.connector.hbase.options.HBaseOptions.ZOOKEEPER_QUORUM;
 import static org.apache.flink.connector.hbase.options.HBaseOptions.ZOOKEEPER_ZNODE_PARENT;
 import static org.apache.flink.connector.hbase.options.HBaseOptions.getHBaseConfiguration;
+import static org.apache.flink.connector.hbase.options.HBaseOptions.getHBaseLookupOptions;
 import static org.apache.flink.connector.hbase.options.HBaseOptions.getHBaseWriteOptions;
 import static org.apache.flink.connector.hbase.options.HBaseOptions.validatePrimaryKey;
 import static org.apache.flink.table.factories.FactoryUtil.SINK_PARALLELISM;
@@ -75,7 +77,7 @@ public class HBase1DynamicTableFactory
         HBaseTableSchema hbaseSchema = HBaseTableSchema.fromTableSchema(tableSchema);
 
         return new HBaseDynamicTableSource(
-                hbaseClientConf, tableName, hbaseSchema, nullStringLiteral);
+                hbaseClientConf, tableName, hbaseSchema, nullStringLiteral, getHBaseLookupOptions(tableOptions));
     }
 
     @Override
@@ -122,6 +124,7 @@ public class HBase1DynamicTableFactory
         set.add(SINK_BUFFER_FLUSH_MAX_ROWS);
         set.add(SINK_BUFFER_FLUSH_INTERVAL);
         set.add(SINK_PARALLELISM);
+        set.add(LOOKUP_ASYNC);
         return set;
     }
 }

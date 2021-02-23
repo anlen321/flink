@@ -65,8 +65,6 @@ import java.util.concurrent.TimeUnit;
 public class HBaseRowDataAsyncLookupFunction extends AsyncTableFunction<RowData> {
 
     private static final Logger LOG = LoggerFactory.getLogger(HBaseRowDataAsyncLookupFunction.class);
-
-
     private static final long serialVersionUID = 1L;
 
     private final String hTableName;
@@ -97,6 +95,31 @@ public class HBaseRowDataAsyncLookupFunction extends AsyncTableFunction<RowData>
         this.maxRetryTimes = lookupOptions.getMaxRetryTimes();
     }
 
+    @Override
+    public void open(FunctionContext context) {
+        LOG.info("start open ...");
+        Configuration config = prepareRuntimeConfiguration();
+        CompletableFuture<AsyncConnection> asyncConnectionFuture = ConnectionFactory.createAsyncConnection(config);
+        try {
+            asyncConnection = asyncConnectionFuture.get();
+            table = asyncConnection.getTable(TableName.valueOf(hTableName), (ExecutorService) Executors.directExecutor());
+
+            this.cache = cacheMaxSize == -1 || cacheExpireMs == 0 ? null : CacheBuilder.newBuilder()
+                .recordStats()
+                .expireAfterWrite(cacheExpireMs, TimeUnit.MILLISECONDS)
+                .maximumSize(cacheMaxSize)
+                .build();
+            if (cache != null) {
+                context.getMetricGroup().gauge("lookupCacheHitRate", (Gauge<Double>) () -> cache.stats().hitRate());
+            }
+        } catch (InterruptedException | ExecutionException e) {
+            LOG.error("Exception while creating connection to HBase.", e);
+            throw new RuntimeException("Cannot create connection to HBase.", e);
+        }
+        this.serde = new HBaseSerde(hbaseTableSchema, nullStringLiteral);
+        LOG.info("end open.");
+    }
+
     /**
      * The invoke entry point of lookup function.
      * @param feature The result or exception is returned.
@@ -121,43 +144,42 @@ public class HBaseRowDataAsyncLookupFunction extends AsyncTableFunction<RowData>
 
     /**
      * Execute async fetch result .
-     * @param feature The result or exception is returned.
+     * @param resultFuture The result or exception is returned.
      * @param currentRetry Current number of retries.
      * @param rowKey the lookup key.
      */
-    private void fetchResult(CompletableFuture<Collection<RowData>> feature, int currentRetry, Object rowKey){
+    private void fetchResult(CompletableFuture<Collection<RowData>> resultFuture, int currentRetry, Object rowKey){
         Get get = serde.createGet(rowKey);
-        CompletableFuture<Result> resultFuture = table.get(get);
-        resultFuture.whenCompleteAsync(
+        CompletableFuture<Result> responseFuture = table.get(get);
+        responseFuture.whenCompleteAsync(
             (result, throwable) -> {
                 if (throwable != null) {
                     if (throwable instanceof TableNotFoundException) {
                         LOG.error("Table '{}' not found ", hTableName, throwable);
-                        feature.completeExceptionally(
+                        resultFuture.completeExceptionally(
                             new RuntimeException("HBase table '" + hTableName + "' not found.", throwable));
                     } else {
                         LOG.error(String.format("Hbase asyncLookup error, retry times = %d", currentRetry), throwable);
                         if (currentRetry >= maxRetryTimes) {
-                            feature.completeExceptionally(throwable);
+                            resultFuture.completeExceptionally(throwable);
                         } else {
                             try {
                                 Thread.sleep(1000 * currentRetry);
                             } catch (InterruptedException e1) {
-                                feature.completeExceptionally(e1);
+                                resultFuture.completeExceptionally(e1);
                             }
-                            fetchResult(feature, currentRetry + 1, rowKey);
+                            fetchResult(resultFuture, currentRetry + 1, rowKey);
                         }
                     }
                 } else {
-                    boolean flag = result.isEmpty();
-                    if (flag) {
-                        feature.complete(Collections.emptyList());
+                    if (result.isEmpty()) {
+                        resultFuture.complete(Collections.emptyList());
                         if (cache != null) {
                             cache.put(rowKey, new GenericRowData(0));
                         }
                     } else {
                         GenericRowData rowData = (GenericRowData) serde.convertToRow(result);
-                        feature.complete(Collections.singletonList(rowData));
+                        resultFuture.complete(Collections.singletonList(rowData));
                         if (cache != null){
                             cache.put(rowKey, rowData);
                         }
@@ -184,31 +206,6 @@ public class HBaseRowDataAsyncLookupFunction extends AsyncTableFunction<RowData>
     }
 
     @Override
-    public void open(FunctionContext context) {
-        LOG.info("start open ...");
-        Configuration config = prepareRuntimeConfiguration();
-        CompletableFuture<AsyncConnection> asyncConnectionFuture = ConnectionFactory.createAsyncConnection(config);
-        try {
-            asyncConnection = asyncConnectionFuture.get();
-            table = asyncConnection.getTable(TableName.valueOf(hTableName), (ExecutorService) Executors.directExecutor());
-
-            this.cache = cacheMaxSize == -1 || cacheExpireMs == 0 ? null : CacheBuilder.newBuilder()
-                    .recordStats()
-                    .expireAfterWrite(cacheExpireMs, TimeUnit.MILLISECONDS)
-                    .maximumSize(cacheMaxSize)
-                    .build();
-            if (cache != null) {
-                context.getMetricGroup().gauge("lookupCacheHitRate", (Gauge<Double>) () -> cache.stats().hitRate());
-            }
-        } catch (InterruptedException | ExecutionException e) {
-            LOG.error("Exception while creating connection to HBase.", e);
-            throw new RuntimeException("Cannot create connection to HBase.", e);
-        }
-        this.serde = new HBaseSerde(hbaseTableSchema, nullStringLiteral);
-        LOG.info("end open.");
-    }
-
-    @Override
     public void close() {
         LOG.info("start close ...");
         if (null != asyncConnection) {
@@ -227,6 +224,4 @@ public class HBaseRowDataAsyncLookupFunction extends AsyncTableFunction<RowData>
     public String getHTableName() {
         return hTableName;
     }
-
-
 }

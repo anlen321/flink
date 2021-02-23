@@ -20,6 +20,7 @@ package org.apache.flink.connector.hbase1.source;
 
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.io.InputFormat;
+import org.apache.flink.connector.hbase.options.HBaseLookupOptions;
 import org.apache.flink.connector.hbase.source.AbstractHBaseDynamicTableSource;
 import org.apache.flink.connector.hbase.util.HBaseTableSchema;
 import org.apache.flink.table.connector.source.DynamicTableSource;
@@ -35,17 +36,27 @@ public class HBaseDynamicTableSource extends AbstractHBaseDynamicTableSource {
             Configuration conf,
             String tableName,
             HBaseTableSchema hbaseSchema,
-            String nullStringLiteral) {
-        super(conf, tableName, hbaseSchema, nullStringLiteral);
+            String nullStringLiteral,
+            HBaseLookupOptions lookupOptions) {
+        super(conf, tableName, hbaseSchema, nullStringLiteral, lookupOptions);
     }
 
     @Override
     public DynamicTableSource copy() {
-        return new HBaseDynamicTableSource(conf, tableName, hbaseSchema, nullStringLiteral);
+        return new HBaseDynamicTableSource(conf, tableName, hbaseSchema, nullStringLiteral, lookupOptions);
     }
 
     @Override
     public InputFormat<RowData, ?> getInputFormat() {
         return new HBaseRowDataInputFormat(conf, tableName, hbaseSchema, nullStringLiteral);
+    }
+
+    @Override
+    public LookupRuntimeProvider getLookupRuntimeProvider(LookupContext context) {
+        if (lookupOptions.getLookupAsync()){
+            throw new UnsupportedOperationException(
+                "Currently, hbase-1.4 connector doesn't support async lookup.");
+        }
+        return super.getLookupRuntimeProvider(context);
     }
 }
