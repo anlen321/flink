@@ -108,10 +108,13 @@ public class HBaseRowDataLookupFunction extends TableFunction<RowData> {
                 if (get != null) {
                     Result result = table.get(get);
                     if (!result.isEmpty()) {
-                        // parse and collect
-                        collect(serde.convertToRow(result));
                         if (cache != null) {
-                            cache.put(rowKey, serde.convertToRow(result));
+                            // parse and collect
+                            RowData rowData = serde.convertToRow(result, false);
+                            collect(rowData);
+                            cache.put(rowKey, rowData);
+                        } else {
+                            collect(serde.convertToRow(result, true));
                         }
                     }
                 }

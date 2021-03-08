@@ -109,7 +109,7 @@ public class HBaseRowDataAsyncLookupFunction extends AsyncTableFunction<RowData>
                 .expireAfterWrite(cacheExpireMs, TimeUnit.MILLISECONDS)
                 .maximumSize(cacheMaxSize)
                 .build();
-            if (cache != null) {
+            if (cache != null && context != null) {
                 context.getMetricGroup().gauge("lookupCacheHitRate", (Gauge<Double>) () -> cache.stats().hitRate());
             }
         } catch (InterruptedException | ExecutionException e) {
@@ -178,10 +178,12 @@ public class HBaseRowDataAsyncLookupFunction extends AsyncTableFunction<RowData>
                             cache.put(rowKey, new GenericRowData(0));
                         }
                     } else {
-                        GenericRowData rowData = (GenericRowData) serde.convertToRow(result);
-                        resultFuture.complete(Collections.singletonList(rowData));
                         if (cache != null){
+                            RowData rowData = serde.convertToRow(result, false);
+                            resultFuture.complete(Collections.singletonList(rowData));
                             cache.put(rowKey, rowData);
+                        } else {
+                            resultFuture.complete(Collections.singletonList(serde.convertToRow(result, true)));
                         }
                     }
                 }

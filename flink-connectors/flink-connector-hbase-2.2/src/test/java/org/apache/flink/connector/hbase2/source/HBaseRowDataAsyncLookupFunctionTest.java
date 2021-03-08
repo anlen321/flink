@@ -74,7 +74,9 @@ public class HBaseRowDataAsyncLookupFunctionTest extends HBaseTestBase {
     }
 
     private HBaseRowDataAsyncLookupFunction buildRowDataAsyncLookupFunction() {
-        HBaseLookupOptions lookupOptions = HBaseLookupOptions.builder().build();
+        HBaseLookupOptions lookupOptions = HBaseLookupOptions.builder()
+            .setCacheMaxSize(4)
+            .setCacheExpireMs(10000).build();
         TableSchema schema =
             TableSchema.builder()
                 .field(ROW_KEY, DataTypes.INT())
