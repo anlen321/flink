@@ -44,7 +44,8 @@ public class HBaseDynamicTableSource extends AbstractHBaseDynamicTableSource {
 
     @Override
     public DynamicTableSource copy() {
-        return new HBaseDynamicTableSource(conf, tableName, hbaseSchema, nullStringLiteral, lookupOptions);
+        return new HBaseDynamicTableSource(
+                conf, tableName, hbaseSchema, nullStringLiteral, lookupOptions);
     }
 
     @Override
@@ -52,17 +53,8 @@ public class HBaseDynamicTableSource extends AbstractHBaseDynamicTableSource {
         return new HBaseRowDataInputFormat(conf, tableName, hbaseSchema, nullStringLiteral);
     }
 
-    @Override
-    public LookupRuntimeProvider getLookupRuntimeProvider(LookupContext context) {
-        if (lookupOptions.getLookupAsync()){
-            throw new UnsupportedOperationException(
-                "Currently, hbase-1.4 connector doesn't support async lookup.");
-        }
-        return super.getLookupRuntimeProvider(context);
-    }
-
     @VisibleForTesting
-    public HBaseLookupOptions getLookupOptions(){
+    public HBaseLookupOptions getLookupOptions() {
         return this.lookupOptions;
     }
 }

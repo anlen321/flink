@@ -94,9 +94,9 @@ public class HBaseRowDataLookupFunction extends TableFunction<RowData> {
      * @param rowKey the lookup key. Currently only support single rowkey.
      */
     public void eval(Object rowKey) throws IOException {
-        if (cache != null){
+        if (cache != null) {
             RowData cacheRowData = cache.getIfPresent(rowKey);
-            if (cacheRowData != null){
+            if (cacheRowData != null) {
                 collect(cacheRowData);
                 return;
             }
@@ -110,16 +110,16 @@ public class HBaseRowDataLookupFunction extends TableFunction<RowData> {
                     if (!result.isEmpty()) {
                         if (cache != null) {
                             // parse and collect
-                            RowData rowData = serde.convertToRow(result, false);
+                            RowData rowData = serde.convertToNewRow(result);
                             collect(rowData);
                             cache.put(rowKey, rowData);
                         } else {
-                            collect(serde.convertToRow(result, true));
+                            collect(serde.convertToReusedRow(result));
                         }
                     }
                 }
                 break;
-            } catch (IOException e){
+            } catch (IOException e) {
                 LOG.error(String.format("HBase lookup error, retry times = %d", retry), e);
                 if (retry >= maxRetryTimes) {
                     throw new RuntimeException("Execution of HBase lookup failed.", e);
@@ -164,13 +164,17 @@ public class HBaseRowDataLookupFunction extends TableFunction<RowData> {
         try {
             hConnection = ConnectionFactory.createConnection(config);
             table = (HTable) hConnection.getTable(TableName.valueOf(hTableName));
-            this.cache = cacheMaxSize == -1 || cacheExpireMs == 0 ? null : CacheBuilder.newBuilder()
-                .recordStats()
-                .expireAfterWrite(cacheExpireMs, TimeUnit.MILLISECONDS)
-                .maximumSize(cacheMaxSize)
-                .build();
+            this.cache =
+                    cacheMaxSize <= 0 || cacheExpireMs <= 0
+                            ? null
+                            : CacheBuilder.newBuilder()
+                                    .recordStats()
+                                    .expireAfterWrite(cacheExpireMs, TimeUnit.MILLISECONDS)
+                                    .maximumSize(cacheMaxSize)
+                                    .build();
             if (cache != null) {
-                context.getMetricGroup().gauge("lookupCacheHitRate", (Gauge<Double>) () -> cache.stats().hitRate());
+                context.getMetricGroup()
+                        .gauge("lookupCacheHitRate", (Gauge<Double>) () -> cache.stats().hitRate());
             }
         } catch (TableNotFoundException tnfe) {
             LOG.error("Table '{}' not found ", hTableName, tnfe);

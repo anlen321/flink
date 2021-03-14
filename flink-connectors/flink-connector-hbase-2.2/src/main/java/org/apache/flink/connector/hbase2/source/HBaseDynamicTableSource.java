@@ -49,29 +49,34 @@ public class HBaseDynamicTableSource extends AbstractHBaseDynamicTableSource {
 
     @Override
     public LookupRuntimeProvider getLookupRuntimeProvider(LookupContext context) {
-        checkArgument(context.getKeys().length == 1 && context.getKeys()[0].length == 1,
-            "Currently, HBase table can only be lookup by single rowkey.");
         checkArgument(
-            hbaseSchema.getRowKeyName().isPresent(),
-            "HBase schema must have a row key when used in lookup mode.");
+                context.getKeys().length == 1 && context.getKeys()[0].length == 1,
+                "Currently, HBase table can only be lookup by single rowkey.");
         checkArgument(
-            hbaseSchema
-                .convertsToTableSchema()
-                .getTableColumn(context.getKeys()[0][0])
-                .filter(f -> f.getName().equals(hbaseSchema.getRowKeyName().get()))
-                .isPresent(),
-            "Currently, HBase table only supports lookup by rowkey field.");
-        if (lookupOptions.getLookupAsync()){
-            return AsyncTableFunctionProvider.of(new HBaseRowDataAsyncLookupFunction(conf, tableName, hbaseSchema,
-                nullStringLiteral, lookupOptions));
+                hbaseSchema.getRowKeyName().isPresent(),
+                "HBase schema must have a row key when used in lookup mode.");
+        checkArgument(
+                hbaseSchema
+                        .convertsToTableSchema()
+                        .getTableColumn(context.getKeys()[0][0])
+                        .filter(f -> f.getName().equals(hbaseSchema.getRowKeyName().get()))
+                        .isPresent(),
+                "Currently, HBase table only supports lookup by rowkey field.");
+        if (lookupOptions.getLookupAsync()) {
+            return AsyncTableFunctionProvider.of(
+                    new HBaseRowDataAsyncLookupFunction(
+                            conf, tableName, hbaseSchema, nullStringLiteral, lookupOptions));
+        } else {
+            return TableFunctionProvider.of(
+                    new HBaseRowDataLookupFunction(
+                            conf, tableName, hbaseSchema, nullStringLiteral, lookupOptions));
         }
-        return TableFunctionProvider.of(new HBaseRowDataLookupFunction(conf, tableName, hbaseSchema, nullStringLiteral,
-            lookupOptions));
     }
 
     @Override
     public DynamicTableSource copy() {
-        return new HBaseDynamicTableSource(conf, tableName, hbaseSchema, nullStringLiteral, lookupOptions);
+        return new HBaseDynamicTableSource(
+                conf, tableName, hbaseSchema, nullStringLiteral, lookupOptions);
     }
 
     @Override
@@ -80,7 +85,7 @@ public class HBaseDynamicTableSource extends AbstractHBaseDynamicTableSource {
     }
 
     @VisibleForTesting
-    public HBaseLookupOptions getLookupOptions(){
+    public HBaseLookupOptions getLookupOptions() {
         return this.lookupOptions;
     }
 }

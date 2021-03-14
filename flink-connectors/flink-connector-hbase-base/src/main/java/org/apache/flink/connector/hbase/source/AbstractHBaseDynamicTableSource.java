@@ -85,7 +85,8 @@ public abstract class AbstractHBaseDynamicTableSource
                 "Currently, HBase table only supports lookup by rowkey field.");
 
         return TableFunctionProvider.of(
-                new HBaseRowDataLookupFunction(conf, tableName, hbaseSchema, nullStringLiteral, lookupOptions));
+                new HBaseRowDataLookupFunction(
+                        conf, tableName, hbaseSchema, nullStringLiteral, lookupOptions));
     }
 
     @Override

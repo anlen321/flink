@@ -25,7 +25,7 @@ import org.apache.flink.connector.hbase.util.HBaseConfigurationUtil;
 import org.apache.flink.connector.hbase.util.HBaseSerde;
 import org.apache.flink.connector.hbase.util.HBaseTableSchema;
 import org.apache.flink.metrics.Gauge;
-import org.apache.flink.runtime.concurrent.Executors;
+import org.apache.flink.runtime.util.ExecutorThreadFactory;
 import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.functions.AsyncTableFunction;
@@ -45,6 +45,7 @@ import org.apache.hadoop.hbase.client.ConnectionFactory;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.ScanResultConsumer;
+import org.apache.hadoop.hbase.util.Threads;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,17 +55,18 @@ import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 /**
- * The HBaseRowDataAsyncLookupFunction is a standard user-defined table function, it can be used in
- * tableAPI and also useful for temporal table join plan in SQL. It looks up the result as {@link
- * RowData}.
+ * The HBaseRowDataAsyncLookupFunction is an implemenation to lookup HBase data by rowkey in async
+ * fashion. It looks up the result as {@link RowData}.
  */
 @Internal
 public class HBaseRowDataAsyncLookupFunction extends AsyncTableFunction<RowData> {
 
-    private static final Logger LOG = LoggerFactory.getLogger(HBaseRowDataAsyncLookupFunction.class);
+    private static final Logger LOG =
+            LoggerFactory.getLogger(HBaseRowDataAsyncLookupFunction.class);
     private static final long serialVersionUID = 1L;
 
     private final String hTableName;
@@ -81,11 +83,15 @@ public class HBaseRowDataAsyncLookupFunction extends AsyncTableFunction<RowData>
     private final int maxRetryTimes;
     private transient Cache<Object, RowData> cache;
 
+    /** The size for thread pool. */
+    private static final int THREAD_POOL_SIZE = 16;
+
     public HBaseRowDataAsyncLookupFunction(
             Configuration configuration,
             String hTableName,
             HBaseTableSchema hbaseTableSchema,
-            String nullStringLiteral, HBaseLookupOptions lookupOptions) {
+            String nullStringLiteral,
+            HBaseLookupOptions lookupOptions) {
         this.serializedConfig = HBaseConfigurationUtil.serializeConfiguration(configuration);
         this.hTableName = hTableName;
         this.hbaseTableSchema = hbaseTableSchema;
@@ -98,19 +104,29 @@ public class HBaseRowDataAsyncLookupFunction extends AsyncTableFunction<RowData>
     @Override
     public void open(FunctionContext context) {
         LOG.info("start open ...");
+        final ExecutorService threadPool =
+                Executors.newFixedThreadPool(
+                        THREAD_POOL_SIZE,
+                        new ExecutorThreadFactory(
+                                "hbase-aysnc-lookup-worker", Threads.LOGGING_EXCEPTION_HANDLER));
         Configuration config = prepareRuntimeConfiguration();
-        CompletableFuture<AsyncConnection> asyncConnectionFuture = ConnectionFactory.createAsyncConnection(config);
+        CompletableFuture<AsyncConnection> asyncConnectionFuture =
+                ConnectionFactory.createAsyncConnection(config);
         try {
             asyncConnection = asyncConnectionFuture.get();
-            table = asyncConnection.getTable(TableName.valueOf(hTableName), (ExecutorService) Executors.directExecutor());
+            table = asyncConnection.getTable(TableName.valueOf(hTableName), threadPool);
 
-            this.cache = cacheMaxSize == -1 || cacheExpireMs == 0 ? null : CacheBuilder.newBuilder()
-                .recordStats()
-                .expireAfterWrite(cacheExpireMs, TimeUnit.MILLISECONDS)
-                .maximumSize(cacheMaxSize)
-                .build();
+            this.cache =
+                    cacheMaxSize <= 0 || cacheExpireMs <= 0
+                            ? null
+                            : CacheBuilder.newBuilder()
+                                    .recordStats()
+                                    .expireAfterWrite(cacheExpireMs, TimeUnit.MILLISECONDS)
+                                    .maximumSize(cacheMaxSize)
+                                    .build();
             if (cache != null && context != null) {
-                context.getMetricGroup().gauge("lookupCacheHitRate", (Gauge<Double>) () -> cache.stats().hitRate());
+                context.getMetricGroup()
+                        .gauge("lookupCacheHitRate", (Gauge<Double>) () -> cache.stats().hitRate());
             }
         } catch (InterruptedException | ExecutionException e) {
             LOG.error("Exception while creating connection to HBase.", e);
@@ -122,86 +138,103 @@ public class HBaseRowDataAsyncLookupFunction extends AsyncTableFunction<RowData>
 
     /**
      * The invoke entry point of lookup function.
-     * @param feature The result or exception is returned.
+     *
+     * @param future The result or exception is returned.
      * @param rowKey the lookup key. Currently only support single rowkey.
      */
-    public void eval(CompletableFuture<Collection<RowData>> feature, Object rowKey) {
+    public void eval(CompletableFuture<Collection<RowData>> future, Object rowKey) {
         int currentRetry = 0;
-        if (cache != null){
+        if (cache != null) {
             RowData cacheRowData = cache.getIfPresent(rowKey);
-            if (cacheRowData  != null){
-                if (cacheRowData.getArity() == 0){
-                    feature.complete(Collections.emptyList());
+            if (cacheRowData != null) {
+                if (cacheRowData.getArity() == 0) {
+                    future.complete(Collections.emptyList());
                 } else {
-                    feature.complete(Collections.singletonList(cacheRowData));
+                    future.complete(Collections.singletonList(cacheRowData));
                 }
                 return;
             }
         }
         // fetch result
-        fetchResult(feature, currentRetry, rowKey);
+        fetchResult(future, currentRetry, rowKey);
     }
 
     /**
      * Execute async fetch result .
+     *
      * @param resultFuture The result or exception is returned.
      * @param currentRetry Current number of retries.
      * @param rowKey the lookup key.
      */
-    private void fetchResult(CompletableFuture<Collection<RowData>> resultFuture, int currentRetry, Object rowKey){
+    private void fetchResult(
+            CompletableFuture<Collection<RowData>> resultFuture, int currentRetry, Object rowKey) {
         Get get = serde.createGet(rowKey);
         CompletableFuture<Result> responseFuture = table.get(get);
         responseFuture.whenCompleteAsync(
-            (result, throwable) -> {
-                if (throwable != null) {
-                    if (throwable instanceof TableNotFoundException) {
-                        LOG.error("Table '{}' not found ", hTableName, throwable);
-                        resultFuture.completeExceptionally(
-                            new RuntimeException("HBase table '" + hTableName + "' not found.", throwable));
-                    } else {
-                        LOG.error(String.format("HBase asyncLookup error, retry times = %d", currentRetry), throwable);
-                        if (currentRetry >= maxRetryTimes) {
-                            resultFuture.completeExceptionally(throwable);
+                (result, throwable) -> {
+                    if (throwable != null) {
+                        if (throwable instanceof TableNotFoundException) {
+                            LOG.error("Table '{}' not found ", hTableName, throwable);
+                            resultFuture.completeExceptionally(
+                                    new RuntimeException(
+                                            "HBase table '" + hTableName + "' not found.",
+                                            throwable));
                         } else {
-                            try {
-                                Thread.sleep(1000 * currentRetry);
-                            } catch (InterruptedException e1) {
-                                resultFuture.completeExceptionally(e1);
+                            LOG.error(
+                                    String.format(
+                                            "HBase asyncLookup error, retry times = %d",
+                                            currentRetry),
+                                    throwable);
+                            if (currentRetry >= maxRetryTimes) {
+                                resultFuture.completeExceptionally(throwable);
+                            } else {
+                                try {
+                                    Thread.sleep(1000 * currentRetry);
+                                } catch (InterruptedException e1) {
+                                    resultFuture.completeExceptionally(e1);
+                                }
+                                fetchResult(resultFuture, currentRetry + 1, rowKey);
                             }
-                            fetchResult(resultFuture, currentRetry + 1, rowKey);
-                        }
-                    }
-                } else {
-                    if (result.isEmpty()) {
-                        resultFuture.complete(Collections.emptyList());
-                        if (cache != null) {
-                            cache.put(rowKey, new GenericRowData(0));
                         }
                     } else {
-                        if (cache != null){
-                            RowData rowData = serde.convertToRow(result, false);
-                            resultFuture.complete(Collections.singletonList(rowData));
-                            cache.put(rowKey, rowData);
+                        if (result.isEmpty()) {
+                            resultFuture.complete(Collections.emptyList());
+                            if (cache != null) {
+                                cache.put(rowKey, new GenericRowData(0));
+                            }
                         } else {
-                            resultFuture.complete(Collections.singletonList(serde.convertToRow(result, true)));
+                            if (cache != null) {
+                                RowData rowData = serde.convertToNewRow(result);
+                                resultFuture.complete(Collections.singletonList(rowData));
+                                cache.put(rowKey, rowData);
+                            } else {
+                                resultFuture.complete(
+                                        Collections.singletonList(serde.convertToNewRow(result)));
+                            }
                         }
                     }
-                }
-            });
+                });
     }
 
     private Configuration prepareRuntimeConfiguration() {
-        // create default configuration from current runtime env (`hbase-site.xml` in classpath) first,
-        // and overwrite configuration using serialized configuration from client-side env (`hbase-site.xml` in classpath).
+        // create default configuration from current runtime env (`hbase-site.xml` in classpath)
+        // first,
+        // and overwrite configuration using serialized configuration from client-side env
+        // (`hbase-site.xml` in classpath).
         // user params from client-side have the highest priority
-        Configuration runtimeConfig = HBaseConfigurationUtil.deserializeConfiguration(
-                serializedConfig,
-                HBaseConfigurationUtil.getHBaseConfiguration());
+        Configuration runtimeConfig =
+                HBaseConfigurationUtil.deserializeConfiguration(
+                        serializedConfig, HBaseConfigurationUtil.getHBaseConfiguration());
 
         // do validation: check key option(s) in final runtime configuration
         if (StringUtils.isNullOrWhitespaceOnly(runtimeConfig.get(HConstants.ZOOKEEPER_QUORUM))) {
-            LOG.error("can not connect to HBase without {} configuration", HConstants.ZOOKEEPER_QUORUM);
-            throw new IllegalArgumentException("check HBase configuration failed, lost: '" + HConstants.ZOOKEEPER_QUORUM + "'!");
+            LOG.error(
+                    "can not connect to HBase without {} configuration",
+                    HConstants.ZOOKEEPER_QUORUM);
+            throw new IllegalArgumentException(
+                    "check HBase configuration failed, lost: '"
+                            + HConstants.ZOOKEEPER_QUORUM
+                            + "'!");
         }
 
         return runtimeConfig;
@@ -210,6 +243,9 @@ public class HBaseRowDataAsyncLookupFunction extends AsyncTableFunction<RowData>
     @Override
     public void close() {
         LOG.info("start close ...");
+        if (null != table) {
+            table = null;
+        }
         if (null != asyncConnection) {
             try {
                 asyncConnection.close();

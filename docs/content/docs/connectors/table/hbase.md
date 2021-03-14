@@ -171,7 +171,7 @@ Connector Options
       <td>optional</td>
       <td style="word-wrap: break-word;">false</td>
       <td>Boolean</td>
-      <td>Whether async lookup are supported. If true, the lookup will be async. Note, async only supports hbase-2.2 connector.</td>
+      <td>Whether async lookup are enabled. If true, the lookup will be async. Note, async only supports hbase-2.2 connector.</td>
     </tr>
     <tr>
       <td><h5>lookup.cache.max-rows</h5></td>

@@ -164,7 +164,7 @@ ON myTopic.key = hTable.rowkey;
       <td>可选</td>
       <td style="word-wrap: break-word;">false</td>
       <td>Boolean</td>
-      <td>是否支持异步查找。如果为真，查找将是异步的。注意：异步方式只支持 hbase-2.2 连接器</td>
+      <td>是否启用异步查找。如果为真，查找将是异步的。注意：异步方式只支持 hbase-2.2 连接器</td>
     </tr>
     <tr>
       <td><h5>lookup.cache.max-rows</h5></td>

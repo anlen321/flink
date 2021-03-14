@@ -29,17 +29,28 @@ import org.apache.flink.table.data.RowData;
 import org.apache.flink.shaded.guava18.com.google.common.collect.Lists;
 
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.stream.Collectors;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 /** Test suite for {@link HBaseRowDataAsyncLookupFunction}. */
+@RunWith(Parameterized.class)
 public class HBaseRowDataAsyncLookupFunctionTest extends HBaseTestBase {
+    @Parameterized.Parameter public boolean useCache;
+
+    @Parameterized.Parameters(name = "use cache = {0}")
+    public static Object[] parameters() {
+        return new Object[][] {new Object[] {true}, new Object[] {false}};
+    }
 
     @Override
     protected PlannerType planner() {
@@ -52,54 +63,66 @@ public class HBaseRowDataAsyncLookupFunctionTest extends HBaseTestBase {
         HBaseRowDataAsyncLookupFunction lookupFunction = buildRowDataAsyncLookupFunction();
 
         lookupFunction.open(null);
-        List<RowData> list = new ArrayList<>();
-        int[] rowKey = {1, 2, 3};
-        for (int i = 0; i < rowKey.length; i++){
-            CompletableFuture<Collection<RowData>> feature = new CompletableFuture<>();
-            lookupFunction.eval(feature, rowKey[i]);
-            list.add(feature.get().iterator().next());
+        final List<String> result = new ArrayList<>();
+        int[] rowkeys = {1, 2, 1, 12, 3, 12, 4, 3};
+        CountDownLatch latch = new CountDownLatch(rowkeys.length);
+        for (int rowkey : rowkeys) {
+            CompletableFuture<Collection<RowData>> future = new CompletableFuture<>();
+            lookupFunction.eval(future, rowkey);
+            future.whenComplete(
+                    (rs, t) -> {
+                        synchronized (result) {
+                            if (rs.isEmpty()) {
+                                result.add(rowkey + ": null");
+                            } else {
+                                rs.forEach(row -> result.add(rowkey + ": " + row.toString()));
+                            }
+                        }
+                        latch.countDown();
+                    });
         }
+        // this verifies lookup calls are async
+        assertTrue(result.size() < rowkeys.length);
+        latch.await();
         lookupFunction.close();
-        List<String> result =
-            Lists.newArrayList(list).stream()
-                .map(RowData::toString)
-                .sorted()
-                .collect(Collectors.toList());
-
+        List<String> sortResult =
+                Lists.newArrayList(result).stream().sorted().collect(Collectors.toList());
         List<String> expected = new ArrayList<>();
-        expected.add("+I(1,+I(10),+I(Hello-1,100),+I(1.01,false,Welt-1))");
-        expected.add("+I(2,+I(20),+I(Hello-2,200),+I(2.02,true,Welt-2))");
-        expected.add("+I(3,+I(30),+I(Hello-3,300),+I(3.03,false,Welt-3))");
-        assertEquals(expected, result);
+        expected.add("12: null");
+        expected.add("12: null");
+        expected.add("1: +I(1,+I(10),+I(Hello-1,100),+I(1.01,false,Welt-1))");
+        expected.add("1: +I(1,+I(10),+I(Hello-1,100),+I(1.01,false,Welt-1))");
+        expected.add("2: +I(2,+I(20),+I(Hello-2,200),+I(2.02,true,Welt-2))");
+        expected.add("3: +I(3,+I(30),+I(Hello-3,300),+I(3.03,false,Welt-3))");
+        expected.add("3: +I(3,+I(30),+I(Hello-3,300),+I(3.03,false,Welt-3))");
+        expected.add("4: +I(4,+I(40),+I(null,400),+I(4.04,true,Welt-4))");
+        assertEquals(expected, sortResult);
     }
 
     private HBaseRowDataAsyncLookupFunction buildRowDataAsyncLookupFunction() {
-        HBaseLookupOptions lookupOptions = HBaseLookupOptions.builder()
-            .setCacheMaxSize(4)
-            .setCacheExpireMs(10000).build();
+        HBaseLookupOptions lookupOptions = HBaseLookupOptions.builder().build();
+        if (useCache) {
+            lookupOptions =
+                    HBaseLookupOptions.builder().setCacheMaxSize(4).setCacheExpireMs(10000).build();
+        }
         TableSchema schema =
-            TableSchema.builder()
-                .field(ROW_KEY, DataTypes.INT())
-                .field(FAMILY1, DataTypes.ROW(DataTypes.FIELD(F1COL1, DataTypes.INT())))
-                .field(
-                    FAMILY2,
-                    DataTypes.ROW(
-                        DataTypes.FIELD(F2COL1, DataTypes.STRING()),
-                        DataTypes.FIELD(F2COL2, DataTypes.BIGINT())))
-                .field(
-                    FAMILY3,
-                    DataTypes.ROW(
-                        DataTypes.FIELD(F3COL1, DataTypes.DOUBLE()),
-                        DataTypes.FIELD(F3COL2, DataTypes.BOOLEAN()),
-                        DataTypes.FIELD(F3COL3, DataTypes.STRING())))
-                .build();
+                TableSchema.builder()
+                        .field(ROW_KEY, DataTypes.INT())
+                        .field(FAMILY1, DataTypes.ROW(DataTypes.FIELD(F1COL1, DataTypes.INT())))
+                        .field(
+                                FAMILY2,
+                                DataTypes.ROW(
+                                        DataTypes.FIELD(F2COL1, DataTypes.STRING()),
+                                        DataTypes.FIELD(F2COL2, DataTypes.BIGINT())))
+                        .field(
+                                FAMILY3,
+                                DataTypes.ROW(
+                                        DataTypes.FIELD(F3COL1, DataTypes.DOUBLE()),
+                                        DataTypes.FIELD(F3COL2, DataTypes.BOOLEAN()),
+                                        DataTypes.FIELD(F3COL3, DataTypes.STRING())))
+                        .build();
         HBaseTableSchema hbaseSchema = HBaseTableSchema.fromTableSchema(schema);
         return new HBaseRowDataAsyncLookupFunction(
-            getConf(),
-            TEST_TABLE_1,
-            hbaseSchema,
-            "null",
-            lookupOptions);
+                getConf(), TEST_TABLE_1, hbaseSchema, "null", lookupOptions);
     }
-
 }

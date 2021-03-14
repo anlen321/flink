@@ -82,7 +82,7 @@ public class HBaseRowDataInputFormat extends AbstractTableInputFormat<RowData> {
 
     @Override
     protected RowData mapResultToOutType(Result res) {
-        return serde.convertToRow(res, true);
+        return serde.convertToReusedRow(res);
     }
 
     private void connectToTable() throws IOException {

@@ -81,7 +81,8 @@ public class HBase2DynamicTableFactory
         String nullStringLiteral = tableOptions.get(NULL_STRING_LITERAL);
         HBaseTableSchema hbaseSchema = HBaseTableSchema.fromTableSchema(tableSchema);
 
-        return new HBaseDynamicTableSource(hbaseConf, tableName, hbaseSchema, nullStringLiteral, lookupOptions);
+        return new HBaseDynamicTableSource(
+                hbaseConf, tableName, hbaseSchema, nullStringLiteral, lookupOptions);
     }
 
     @Override

@@ -37,7 +37,6 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-import static org.apache.flink.connector.hbase.options.HBaseOptions.LOOKUP_ASYNC;
 import static org.apache.flink.connector.hbase.options.HBaseOptions.LOOKUP_CACHE_MAX_ROWS;
 import static org.apache.flink.connector.hbase.options.HBaseOptions.LOOKUP_CACHE_TTL;
 import static org.apache.flink.connector.hbase.options.HBaseOptions.LOOKUP_MAX_RETRIES;
@@ -80,7 +79,11 @@ public class HBase1DynamicTableFactory
         HBaseTableSchema hbaseSchema = HBaseTableSchema.fromTableSchema(tableSchema);
 
         return new HBaseDynamicTableSource(
-                hbaseClientConf, tableName, hbaseSchema, nullStringLiteral, getHBaseLookupOptions(tableOptions));
+                hbaseClientConf,
+                tableName,
+                hbaseSchema,
+                nullStringLiteral,
+                getHBaseLookupOptions(tableOptions));
     }
 
     @Override
@@ -127,7 +130,6 @@ public class HBase1DynamicTableFactory
         set.add(SINK_BUFFER_FLUSH_MAX_ROWS);
         set.add(SINK_BUFFER_FLUSH_INTERVAL);
         set.add(SINK_PARALLELISM);
-        set.add(LOOKUP_ASYNC);
         set.add(LOOKUP_CACHE_MAX_ROWS);
         set.add(LOOKUP_CACHE_TTL);
         set.add(LOOKUP_MAX_RETRIES);

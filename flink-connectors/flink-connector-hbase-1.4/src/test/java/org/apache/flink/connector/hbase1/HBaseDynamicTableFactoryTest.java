@@ -254,18 +254,18 @@ public class HBaseDynamicTableFactoryTest {
         options.put("lookup.cache.ttl", "10s");
         options.put("lookup.max-retries", "10");
         TableSchema schema =
-            TableSchema.builder()
-                .field(ROWKEY, STRING())
-                .field(FAMILY1, ROW(FIELD(COL1, DOUBLE()), FIELD(COL2, INT())))
-                .build();
+                TableSchema.builder()
+                        .field(ROWKEY, STRING())
+                        .field(FAMILY1, ROW(FIELD(COL1, DOUBLE()), FIELD(COL2, INT())))
+                        .build();
         DynamicTableSource source = createTableSource(schema, options);
         HBaseLookupOptions actual = ((HBaseDynamicTableSource) source).getLookupOptions();
         HBaseLookupOptions expected =
-            HBaseLookupOptions.builder()
-                .setCacheMaxSize(1000)
-                .setCacheExpireMs(10_000)
-                .setMaxRetryTimes(10)
-                .build();
+                HBaseLookupOptions.builder()
+                        .setCacheMaxSize(1000)
+                        .setCacheExpireMs(10_000)
+                        .setMaxRetryTimes(10)
+                        .build();
         assertEquals(expected, actual);
     }
 

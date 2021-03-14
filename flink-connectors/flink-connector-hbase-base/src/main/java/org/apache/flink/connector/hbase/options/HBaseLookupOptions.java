@@ -34,7 +34,8 @@ public class HBaseLookupOptions implements Serializable {
     private final int maxRetryTimes;
     private final boolean lookupAsync;
 
-    public HBaseLookupOptions(long cacheMaxSize, long cacheExpireMs, int maxRetryTimes, boolean lookupAsync) {
+    public HBaseLookupOptions(
+            long cacheMaxSize, long cacheExpireMs, int maxRetryTimes, boolean lookupAsync) {
         this.cacheMaxSize = cacheMaxSize;
         this.cacheExpireMs = cacheExpireMs;
         this.maxRetryTimes = maxRetryTimes;
@@ -65,51 +66,41 @@ public class HBaseLookupOptions implements Serializable {
     public boolean equals(Object o) {
         if (o instanceof HBaseLookupOptions) {
             HBaseLookupOptions options = (HBaseLookupOptions) o;
-            return Objects.equals(cacheMaxSize, options.cacheMaxSize) &&
-                    Objects.equals(cacheExpireMs, options.cacheExpireMs) &&
-                    Objects.equals(maxRetryTimes, options.maxRetryTimes) &&
-                    Objects.equals(lookupAsync, options.lookupAsync);
+            return Objects.equals(cacheMaxSize, options.cacheMaxSize)
+                    && Objects.equals(cacheExpireMs, options.cacheExpireMs)
+                    && Objects.equals(maxRetryTimes, options.maxRetryTimes)
+                    && Objects.equals(lookupAsync, options.lookupAsync);
         } else {
             return false;
         }
     }
 
-    /**
-     * Builder of {@link HBaseLookupOptions}.
-     */
+    /** Builder of {@link HBaseLookupOptions}. */
     public static class Builder {
         private long cacheMaxSize = -1L;
         private long cacheExpireMs = 0L;
         private int maxRetryTimes = DEFAULT_MAX_RETRY_TIMES;
         private boolean lookupAsync = false;
 
-        /**
-         * optional, lookup cache max size, over this value, the old data will be eliminated.
-         */
+        /** optional, lookup cache max size, over this value, the old data will be eliminated. */
         public Builder setCacheMaxSize(long cacheMaxSize) {
             this.cacheMaxSize = cacheMaxSize;
             return this;
         }
 
-        /**
-         * optional, lookup cache expire mills, over this time, the old data will expire.
-         */
+        /** optional, lookup cache expire mills, over this time, the old data will expire. */
         public Builder setCacheExpireMs(long cacheExpireMs) {
             this.cacheExpireMs = cacheExpireMs;
             return this;
         }
 
-        /**
-         * optional, max retry times for Hbase connector.
-         */
+        /** optional, max retry times for Hbase connector. */
         public Builder setMaxRetryTimes(int maxRetryTimes) {
             this.maxRetryTimes = maxRetryTimes;
             return this;
         }
 
-        /**
-         * optional, whether to set async lookup.
-         */
+        /** optional, whether to set async lookup. */
         public Builder setLookupAsync(boolean lookupAsync) {
             this.lookupAsync = lookupAsync;
             return this;
