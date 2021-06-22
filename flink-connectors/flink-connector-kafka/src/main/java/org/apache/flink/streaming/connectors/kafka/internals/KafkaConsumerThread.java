@@ -230,16 +230,21 @@ public class KafkaConsumerThread<T> extends Thread {
                 }
 
                 try {
+                    // 刚开始启动的时候hasAssignedPartitions为false
                     if (hasAssignedPartitions) {
+                        // 程序开始消费之后，hasAssignedPartitions值会为true，如果开启了分区发现，则后面发现的新分区都会添加到unassignedPartitionsQueue中
                         newPartitions = unassignedPartitionsQueue.pollBatch();
                     } else {
                         // if no assigned partitions block until we get at least one
                         // instead of hot spinning this loop. We rely on a fact that
                         // unassignedPartitionsQueue will be closed on a shutdown, so
                         // we don't block indefinitely
+                        // 这里是刚开始启动，第一次执行的时候，需要阻塞获取所有的分区
                         newPartitions = unassignedPartitionsQueue.getBatchBlocking();
                     }
                     if (newPartitions != null) {
+                        // 第一次执行时初始化所有的分区进行消费；后面如果发现新的分区则将新的分区添加到消费者中
+                        // 将获取到的partiton进行分配，并将hasAssignedPartitions置位true
                         reassignPartitions(newPartitions);
                     }
                 } catch (AbortedReassignmentException e) {
@@ -411,6 +416,7 @@ public class KafkaConsumerThread<T> extends Thread {
             reassignmentStarted = true;
 
             // old partitions should be seeked to their previous position
+            // 将原来的分区恢复原来的offset
             for (Map.Entry<TopicPartition, Long> oldPartitionToPosition :
                     oldPartitionAssignmentsToPosition.entrySet()) {
                 consumerTmp.seek(
@@ -441,10 +447,12 @@ public class KafkaConsumerThread<T> extends Thread {
                         == KafkaTopicPartitionStateSentinel.GROUP_OFFSET) {
                     // the KafkaConsumer by default will automatically seek the consumer position
                     // to the committed group offset, so we do not need to do it.
-
+                    // 因为KafkaTopicPartitionState状态中保存的是最后一次成功消费数据的offset，
+                    // 但是根据KafkaConsumer#position方法获取的offset是下一次应该消费的起始offset，所以需要减1
                     newPartitionState.setOffset(
                             consumerTmp.position(newPartitionState.getKafkaPartitionHandle()) - 1);
                 } else {
+                    // state保存的是最后一次成功消费数据的offset，所以加1才是现在需要开始消费的offset。
                     consumerTmp.seek(
                             newPartitionState.getKafkaPartitionHandle(),
                             newPartitionState.getOffset() + 1);

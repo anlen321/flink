@@ -128,7 +128,7 @@ public abstract class FlinkKafkaConsumerBase<T> extends RichParallelSourceFuncti
 
     /**
      * The set of topic partitions that the source will read, with their initial offsets to start
-     * reading from.
+     * reading from. 订阅分区的初始offset信息，从状态中恢复，或者根据startupModel模式进行设置。
      */
     private Map<KafkaTopicPartition, Long> subscribedPartitionsToStartOffsets;
 
@@ -193,11 +193,12 @@ public abstract class FlinkKafkaConsumerBase<T> extends RichParallelSourceFuncti
      * method.
      *
      * <p>Using a sorted map as the ordering is important when using restored state to seed the
-     * partition discoverer.
+     * partition discoverer. 根据状态中恢复的 unionOffsetStates信息进行构建，用于设置订阅分区的初始offset
      */
     private transient volatile TreeMap<KafkaTopicPartition, Long> restoredState;
 
     /** Accessor for state in the operator state backend. */
+    // operator state 用于持久化offset信息
     private transient ListState<Tuple2<KafkaTopicPartition, Long>> unionOffsetStates;
 
     /** Discovery loop, executed in a separate thread. */
@@ -575,6 +576,8 @@ public abstract class FlinkKafkaConsumerBase<T> extends RichParallelSourceFuncti
 
         subscribedPartitionsToStartOffsets = new HashMap<>();
         final List<KafkaTopicPartition> allPartitions = partitionDiscoverer.discoverPartitions();
+        // 如果restoredState不为空，则证明kafka offset信息可以从checkpoint中恢复
+        // 所以我们就可以根据状态信息对subscribedPartitionsToStartOffsets进行设置每个分区的offset
         if (restoredState != null) {
             for (KafkaTopicPartition partition : allPartitions) {
                 if (!restoredState.containsKey(partition)) {
@@ -617,6 +620,10 @@ public abstract class FlinkKafkaConsumerBase<T> extends RichParallelSourceFuncti
                     subscribedPartitionsToStartOffsets.size(),
                     subscribedPartitionsToStartOffsets);
         } else {
+            // 由于offset不能从状态中恢复，则接下来将根据 StartupMode配置的启动策略进行设置，默认策略是GROUP_OFFSETS
+            // 总共有五种策略：SPECIFIC_OFFSETS，TIMESTAMP，EARLIEST，LATEST，GROUP_OFFSETS
+            // 对于SPECIFIC_OFFSETS 和 TIMESTAMP模式，我们可以直接设置特定的偏移量
+            // 对于其他的模式（EARLIEST, LATEST, GROUP_OFFSETS）它们的offset是惰性的，当分区被读取的时候才可以确定
             // use the partition discoverer to fetch the initial seed partitions,
             // and set their initial offsets depending on the startup mode.
             // for SPECIFIC_OFFSETS and TIMESTAMP modes, we set the specific offsets now;
@@ -822,6 +829,7 @@ public abstract class FlinkKafkaConsumerBase<T> extends RichParallelSourceFuncti
         //                 thread running the main fetcher loop
         //  2) Old state - partition discovery is disabled and only the main fetcher loop is
         // executed
+        // 根据是否配置有效的kafka分区发现时间间隔来判断是否开启分区发现的线程：flink.partition-discovery.interval-millis
         if (discoveryIntervalMillis == PARTITION_DISCOVERY_DISABLED) {
             kafkaFetcher.runFetchLoop();
         } else {
@@ -1017,6 +1025,7 @@ public abstract class FlinkKafkaConsumerBase<T> extends RichParallelSourceFuncti
             if (fetcher == null) {
                 // the fetcher has not yet been initialized, which means we need to return the
                 // originally restored offsets or the assigned partitions
+                // 当fetcher没有初始化，意味着还没开始消费数据，所以直接获取订阅分区的初始offset信息写入状态进行存储
                 for (Map.Entry<KafkaTopicPartition, Long> subscribedPartition :
                         subscribedPartitionsToStartOffsets.entrySet()) {
                     unionOffsetStates.add(
@@ -1032,8 +1041,11 @@ public abstract class FlinkKafkaConsumerBase<T> extends RichParallelSourceFuncti
                     pendingOffsetsToCommit.put(context.getCheckpointId(), restoredState);
                 }
             } else {
+                // 获取 subscribedPartitionStates 列表中保存的topic分区对应最新的offset信息
                 HashMap<KafkaTopicPartition, Long> currentOffsets = fetcher.snapshotCurrentState();
-
+                // 如果OffsetCommitMode模式是ON_CHECKPOINTS，则需要将分区对应的offset信息以checkpoint为key写入到pendingOffsetsToCommit对象中
+                // pendingOffsetsToCommit对象将在checkpoint成功之后并调用notifyCheckpointComplete方法时进行处理，最终使数据能够被消费线程获取
+                // 最终offset信息在消费线程中被提交到kafka
                 if (offsetCommitMode == OffsetCommitMode.ON_CHECKPOINTS) {
                     // the map cannot be asynchronously updated, because only one checkpoint call
                     // can happen
@@ -1041,7 +1053,7 @@ public abstract class FlinkKafkaConsumerBase<T> extends RichParallelSourceFuncti
                     // notifyCheckpointComplete()
                     pendingOffsetsToCommit.put(context.getCheckpointId(), currentOffsets);
                 }
-
+                // 将各个分区的offset信息添加到flink ListState状态中：ListState<Tuple2<KafkaTopicPartition, Long>> unionOffsetStates
                 for (Map.Entry<KafkaTopicPartition, Long> kafkaTopicPartitionLongEntry :
                         currentOffsets.entrySet()) {
                     unionOffsetStates.add(
@@ -1091,7 +1103,7 @@ public abstract class FlinkKafkaConsumerBase<T> extends RichParallelSourceFuncti
                             checkpointId);
                     return;
                 }
-
+                // 根据ckeckpoint id获取本次checkpoint的kafka offset信息
                 @SuppressWarnings("unchecked")
                 Map<KafkaTopicPartition, Long> offsets =
                         (Map<KafkaTopicPartition, Long>) pendingOffsetsToCommit.remove(posInMap);
@@ -1107,7 +1119,8 @@ public abstract class FlinkKafkaConsumerBase<T> extends RichParallelSourceFuncti
                             getRuntimeContext().getIndexOfThisSubtask());
                     return;
                 }
-
+                // 将信息更新到 KafkaConsumerThread#nextOffsetToCommit对象 ,对象将在kafka的消费线程中被读取，
+                // 并异步提交到kafka中，最终保存到_consumer_offset的topic中
                 fetcher.commitInternalOffsetsToKafka(offsets, offsetCommitCallback);
             } catch (Exception e) {
                 if (running) {

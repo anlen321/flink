@@ -210,7 +210,7 @@ public class IntervalJoinITCase {
         streamOne
                 .keyBy(new Tuple2KeyExtractor())
                 .intervalJoin(streamTwo.keyBy(new Tuple2KeyExtractor()))
-                .between(Time.milliseconds(-1), Time.milliseconds(1))
+                .between(Time.milliseconds(-5), Time.milliseconds(1))
                 .process(new CombineToStringJoinFunction())
                 .addSink(new ResultSink());
 

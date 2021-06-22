@@ -41,7 +41,7 @@ import static org.apache.flink.table.runtime.functions.SqlDateTimeUtils.timeToIn
 import static org.apache.flink.table.runtime.functions.SqlDateTimeUtils.timestampToInternal;
 
 /** Abstract IT case class for HBase. */
-public abstract class HBaseTestBase extends HBaseTestingClusterAutoStarter {
+public abstract class HBaseTestBase extends HBaseTestingClusterAutoStarter2 {
 
     protected static final String TEST_TABLE_1 = "testTable1";
     protected static final String TEST_TABLE_2 = "testTable2";

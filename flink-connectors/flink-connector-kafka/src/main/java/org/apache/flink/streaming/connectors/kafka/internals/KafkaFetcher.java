@@ -125,6 +125,7 @@ public class KafkaFetcher<T> extends AbstractFetcher<T, TopicPartition> {
     public void runFetchLoop() throws Exception {
         try {
             // kick off the actual Kafka consumer
+            // 真正消费kafka的线程
             consumerThread.start();
 
             while (running) {
@@ -133,12 +134,14 @@ public class KafkaFetcher<T> extends AbstractFetcher<T, TopicPartition> {
                 final ConsumerRecords<byte[], byte[]> records = handover.pollNext();
 
                 // get the records for each topic partition
+                // 获取每个topic分区的记录,并向下游发送
                 for (KafkaTopicPartitionState<T, TopicPartition> partition :
                         subscribedPartitionStates()) {
 
                     List<ConsumerRecord<byte[], byte[]>> partitionRecords =
                             records.records(partition.getKafkaPartitionHandle());
-
+                    // 根据分区向下游发送数据并且更新subscribedPartitionStates列表中KafkaTopicPartitionState对象中的offset
+                    // subscribedPartitionStates列表数据会在发生checkpoint时进行持久化，也就是FlinkKafkaConsumerBase#snapshotState
                     partitionConsumerRecordsHandler(partitionRecords, partition);
                 }
             }

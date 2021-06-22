@@ -226,11 +226,11 @@ public class IntervalJoinOperator<K, T1, T2, OUT>
                     "Long.MIN_VALUE timestamp: Elements used in "
                             + "interval stream joins need to have timestamps meaningful timestamps.");
         }
-
+        // 将迟到的数据进行舍弃
         if (isLate(ourTimestamp)) {
             return;
         }
-
+        // 将数据放入缓存中
         addToBuffer(ourBuffer, ourValue, ourTimestamp);
 
         for (Map.Entry<Long, List<BufferEntry<OTHER>>> bucket : otherBuffer.entries()) {

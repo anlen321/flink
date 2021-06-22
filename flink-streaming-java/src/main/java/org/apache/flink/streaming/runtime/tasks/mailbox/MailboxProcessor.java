@@ -185,8 +185,11 @@ public class MailboxProcessor implements Closeable {
 
         while (isMailboxLoopRunning()) {
             // The blocking `processMail` call will not return until default action is available.
+            ////note: 如果有 mail 需要处理，这里会进行相应的处理，处理完才会进行下面的 event processing
             processMail(localMailbox, false);
             if (isMailboxLoopRunning()) {
+                //note: 进行 task 的 default action，也就是调用 processInput()
+                //note: 这个最终调用的 StreamTask 的 processInput() 方法，event-processing 的处理就是在这个方法中进行的。
                 mailboxDefaultAction.runDefaultAction(
                         defaultActionContext); // lock is acquired inside default action as needed
             }

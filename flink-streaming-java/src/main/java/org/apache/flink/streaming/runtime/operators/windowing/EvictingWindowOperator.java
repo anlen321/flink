@@ -248,6 +248,7 @@ public class EvictingWindowOperator<K, IN, OUT, W extends Window>
                         // if we have no state, there is nothing to do
                         continue;
                     }
+                    // 将数据发送到下游，在发送前后会根据配置的驱逐策略对数据进行过滤
                     emitWindowContents(window, contents, evictingWindowState);
                 }
 

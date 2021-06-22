@@ -170,7 +170,8 @@ object FlinkStreamProgram {
         .add(FlinkStreamRuleSets.PROJECT_RULES)
         .build())
 
-    // optimize the logical plan
+    // optimize the logical plan：对逻辑计划进行优化，该优化先进行常规的优化，
+    // 最后再将 calcite 的逻辑计划转成flink封装的逻辑计划：FlinkLogical
     chainedProgram.addLast(
       LOGICAL,
       FlinkVolcanoProgramBuilder.newBuilder
@@ -178,7 +179,7 @@ object FlinkStreamProgram {
         .setRequiredOutputTraits(Array(FlinkConventions.LOGICAL))
         .build())
 
-    // logical rewrite
+    // logical rewrite：重写逻辑计划
     chainedProgram.addLast(
       LOGICAL_REWRITE,
       FlinkHepRuleSetProgramBuilder.newBuilder
@@ -187,7 +188,7 @@ object FlinkStreamProgram {
         .add(FlinkStreamRuleSets.LOGICAL_REWRITE)
         .build())
 
-    // optimize the physical plan
+    // optimize the physical plan：优化物理计划
     chainedProgram.addLast(
       PHYSICAL,
       FlinkVolcanoProgramBuilder.newBuilder
@@ -195,7 +196,7 @@ object FlinkStreamProgram {
         .setRequiredOutputTraits(Array(FlinkConventions.STREAM_PHYSICAL))
         .build())
 
-    // physical rewrite
+    // physical rewrite：重写物理计划，包括miniBatch实现
     chainedProgram.addLast(
       PHYSICAL_REWRITE,
       FlinkGroupProgramBuilder.newBuilder[StreamOptimizeContext]

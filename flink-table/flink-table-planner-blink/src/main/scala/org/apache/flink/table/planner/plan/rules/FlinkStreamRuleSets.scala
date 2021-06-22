@@ -343,7 +343,7 @@ object FlinkStreamRuleSets {
       PROJECT_RULES.asScala ++
       PRUNE_EMPTY_RULES.asScala ++
       LOGICAL_RULES.asScala ++
-      LOGICAL_CONVERTERS.asScala
+      LOGICAL_CONVERTERS.asScala  // 该规则是将 calcite nodes 转换 flink nodes
     ).asJava)
 
   /**

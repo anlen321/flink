@@ -212,8 +212,11 @@ public class InternalTimerServiceImpl<K, N> implements InternalTimerService<N> {
         return currentWatermark;
     }
 
-    @Override
+    @Override // 注册处理时间的定时器
     public void registerProcessingTimeTimer(N namespace, long time) {
+        // 处理时间的定时器每次只会从队列中读取最小的时间真实地使用调度线程去注册定时器
+        // 所以新注册的定时器就需要跟当前真正注册的定时器比较，如果小于，则将原来的定时器进行取消，然后将新的时间注册进去
+        // 否则将新的定时器包装成TimerHeapInternalTimer对象，然后添加到队列中
         InternalTimer<K, N> oldHead = processingTimeTimersQueue.peek();
         if (processingTimeTimersQueue.add(
                 new TimerHeapInternalTimer<>(time, (K) keyContext.getCurrentKey(), namespace))) {
@@ -223,13 +226,16 @@ public class InternalTimerServiceImpl<K, N> implements InternalTimerService<N> {
                 if (nextTimer != null) {
                     nextTimer.cancel(false);
                 }
+                // 将新的时间注册定时器，触发执行时，执行 onProcessingTime 方法
                 nextTimer = processingTimeService.registerTimer(time, this::onProcessingTime);
             }
         }
     }
 
-    @Override
+    @Override // 注册事件时间的定时器
     public void registerEventTimeTimer(N namespace, long time) {
+        // 因为事件时间需要watermark触发，所以没办法使用调度器去定时，只能依靠后面过来的watermark触发
+        // 因此我们只要将其设置到根据时间作为优先级的优先队列中就行了
         eventTimeTimersQueue.add(
                 new TimerHeapInternalTimer<>(time, (K) keyContext.getCurrentKey(), namespace));
     }
@@ -270,32 +276,36 @@ public class InternalTimerServiceImpl<K, N> implements InternalTimerService<N> {
             }
         }
     }
-
+    // 系统注册的定时器定时调度器最终执行的方法
     private void onProcessingTime(long time) throws Exception {
         // null out the timer in case the Triggerable calls registerProcessingTimeTimer()
         // inside the callback.
         nextTimer = null;
 
         InternalTimer<K, N> timer;
-
+        //循环遍历 processingTimeTimersQueue 这个优先级队列
+        //如果获取到的时间小于调用的触发时间，那么就会执行Triggerable.onProcessingTime方法
+        //Triggerable表示具体定时操作接口，例如WindowOperator/KeyedProcessOperator 都实现了该接口
         while ((timer = processingTimeTimersQueue.peek()) != null && timer.getTimestamp() <= time) {
             processingTimeTimersQueue.poll();
             keyContext.setCurrentKey(timer.getKey());
             triggerTarget.onProcessingTime(timer);
         }
-
+        // 重新从队列中获取时间最小的进行注册定时器
         if (timer != null && nextTimer == null) {
             nextTimer =
                     processingTimeService.registerTimer(
                             timer.getTimestamp(), this::onProcessingTime);
         }
     }
-
+    // 水位线到达后执行的方法，水位来之后就会从队列中获取满足执行条件的定时器，并调用onEventTime执行
     public void advanceWatermark(long time) throws Exception {
         currentWatermark = time;
 
         InternalTimer<K, N> timer;
-
+        //循环遍历 eventTimeTimersQueue 这个优先级队列
+        //如果获取到的时间小于调用的触发时间，那么就会执行Triggerable.onEventTime
+        //Triggerable表示具体定时操作接口，例如WindowOperator/KeyedProcessOperator 都实现了该接口
         while ((timer = eventTimeTimersQueue.peek()) != null && timer.getTimestamp() <= time) {
             eventTimeTimersQueue.poll();
             keyContext.setCurrentKey(timer.getKey());

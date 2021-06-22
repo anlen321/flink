@@ -38,7 +38,7 @@ class SplitAggregateRuleTest extends TableTestBase {
 
   @Test
   def testSingleDistinctAgg(): Unit = {
-    util.verifyRelPlan("SELECT COUNT(DISTINCT c) FROM MyTable")
+    util.verifyRelPlan("SELECT a,COUNT(DISTINCT c) FROM MyTable group by a")
   }
 
   @Test

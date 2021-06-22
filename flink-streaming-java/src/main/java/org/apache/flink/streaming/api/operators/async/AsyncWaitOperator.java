@@ -188,7 +188,7 @@ public class AsyncWaitOperator<IN, OUT>
         if (timeout > 0L) {
             final long timeoutTimestamp =
                     timeout + getProcessingTimeService().getCurrentProcessingTime();
-
+            // 注册定时调度器，定时执行超时，如果该记录完成后会将其进行取消
             final ScheduledFuture<?> timeoutTimer =
                     getProcessingTimeService()
                             .registerTimer(
@@ -199,7 +199,7 @@ public class AsyncWaitOperator<IN, OUT>
 
             resultHandler.setTimeoutTimer(timeoutTimer);
         }
-
+        // 开始执行用于实现的异步调用方法。注意：该方法不是多线程调用，所以我们实现asyncInvoke时不要对其进行阻塞，否则会同步执行
         userFunction.asyncInvoke(element.getValue(), resultHandler);
     }
 

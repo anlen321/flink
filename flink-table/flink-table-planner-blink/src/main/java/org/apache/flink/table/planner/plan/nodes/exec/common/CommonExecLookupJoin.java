@@ -22,6 +22,7 @@ import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.dag.Transformation;
 import org.apache.flink.api.java.typeutils.RowTypeInfo;
+import org.apache.flink.runtime.state.KeyGroupRangeAssignment;
 import org.apache.flink.streaming.api.datastream.AsyncDataStream;
 import org.apache.flink.streaming.api.functions.ProcessFunction;
 import org.apache.flink.streaming.api.functions.async.AsyncFunction;
@@ -30,6 +31,8 @@ import org.apache.flink.streaming.api.operators.SimpleOperatorFactory;
 import org.apache.flink.streaming.api.operators.StreamOperatorFactory;
 import org.apache.flink.streaming.api.operators.async.AsyncWaitOperatorFactory;
 import org.apache.flink.streaming.api.transformations.OneInputTransformation;
+import org.apache.flink.streaming.api.transformations.PartitionTransformation;
+import org.apache.flink.streaming.runtime.partitioner.KeyGroupStreamPartitioner;
 import org.apache.flink.table.api.TableConfig;
 import org.apache.flink.table.api.TableException;
 import org.apache.flink.table.api.config.ExecutionConfigOptions;
@@ -52,6 +55,7 @@ import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeBase;
 import org.apache.flink.table.planner.plan.nodes.exec.InputProperty;
 import org.apache.flink.table.planner.plan.schema.LegacyTableSourceTable;
 import org.apache.flink.table.planner.plan.schema.TableSourceTable;
+import org.apache.flink.table.planner.plan.utils.KeySelectorUtil;
 import org.apache.flink.table.planner.plan.utils.LookupJoinUtil;
 import org.apache.flink.table.planner.utils.JavaScalaConversionUtil;
 import org.apache.flink.table.planner.utils.ShortcutUtils;
@@ -60,6 +64,7 @@ import org.apache.flink.table.runtime.collector.TableFunctionResultFuture;
 import org.apache.flink.table.runtime.generated.GeneratedCollector;
 import org.apache.flink.table.runtime.generated.GeneratedFunction;
 import org.apache.flink.table.runtime.generated.GeneratedResultFuture;
+import org.apache.flink.table.runtime.keyselector.RowDataKeySelector;
 import org.apache.flink.table.runtime.operators.join.FlinkJoinType;
 import org.apache.flink.table.runtime.operators.join.lookup.AsyncLookupJoinRunner;
 import org.apache.flink.table.runtime.operators.join.lookup.AsyncLookupJoinWithCalcRunner;
@@ -82,6 +87,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import javax.annotation.Nullable;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
@@ -207,18 +213,40 @@ public abstract class CommonExecLookupJoin extends ExecNodeBase<RowData> {
 
         Transformation<RowData> inputTransformation =
                 (Transformation<RowData>) inputEdge.translateToPlan(planner);
+        InternalTypeInfo<RowData> inputRowTypeInfo = InternalTypeInfo.of(inputRowType);
+        RowDataKeySelector joinKeySelector =
+            KeySelectorUtil.getRowDataSelector(joinKeyIndex(lookupKeys), inputRowTypeInfo);
+        final KeyGroupStreamPartitioner<RowData, RowData> partitioner =
+            new KeyGroupStreamPartitioner<>(
+                joinKeySelector,
+                KeyGroupRangeAssignment.DEFAULT_LOWER_BOUND_MAX_PARALLELISM);
+        Transformation<RowData> tempTransformation = new PartitionTransformation(inputTransformation, partitioner);
         OneInputTransformation<RowData, RowData> transform =
                 new OneInputTransformation<>(
-                        inputTransformation,
+                    tempTransformation,
                         getDescription(),
                         operatorFactory,
                         InternalTypeInfo.of(resultRowType),
-                        inputTransformation.getParallelism());
+                    tempTransformation.getParallelism());
         if (inputsContainSingleton()) {
             transform.setParallelism(1);
             transform.setMaxParallelism(1);
         }
         return transform;
+    }
+
+    protected int[] joinKeyIndex(
+        final Map<Integer, LookupJoinUtil.LookupKey> lookupKeys) {
+        ArrayList<Integer> list = new ArrayList<>();
+        lookupKeys.entrySet().stream()
+            .filter(entry -> entry.getValue() instanceof LookupJoinUtil.FieldRefLookupKey)
+            .forEach(
+                entry -> {
+                    int leftKey =
+                        ((LookupJoinUtil.FieldRefLookupKey) entry.getValue()).index;
+                    list.add(leftKey);
+                });
+        return list.stream().mapToInt(Integer::intValue).toArray();
     }
 
     protected void validateLookupKeyType(

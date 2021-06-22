@@ -98,9 +98,12 @@ class StreamPlanner(
         translateToRel(modifyOperation)
       case o => throw new TableException(s"Unsupported operation: ${o.getClass.getCanonicalName}")
     }
+    // RelNode(关系表达式),optimize就是根据规则将一种RelNode转成RelNode
+    // 对RelNode(逻辑计划)进行优化:里面先对逻辑计划进行优化，然后再转成Flink的逻辑计划，最后生成物理计划并对其进行优化
     val optimizedRelNodes = optimize(sinkRelNodes)
+    // 将优化后的逻辑计划转成ExecNode(执行计划)，并尝试重用重复的子计划。
     val execGraph = translateToExecNodeGraph(optimizedRelNodes)
-
+    // 将[[ExecNodeGraph]]转换为[[Transformation]] DAG，也就是将Node转换flink 的 Transformation
     val transformations = translateToPlan(execGraph)
     val streamGraph = ExecutorUtils.generateStreamGraph(getExecEnv, transformations)
 
